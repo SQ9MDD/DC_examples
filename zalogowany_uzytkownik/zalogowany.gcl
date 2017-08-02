@@ -1,0 +1,8 @@
+// Zalogowany uytkownik
+// SINUX r.labus@sinux.pl
+
+ForAll  sualoggedin In "SUA*:*"
+  If sualoggedin = Logged In Then
+    Logged_user.Description = sualoggedin.Description
+  End If
+End For
