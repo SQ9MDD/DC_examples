@@ -1,0 +1,10 @@
+//KAC4 Module on UI 
+Variable triger
+If (KAC4_1 Changed) Then triger = Not triger End If
+
+IfOnce (triger OnFor 2S) Or (triger OffFor 2S) Then
+   KAC4_X_We1 = (((KAC4_1 - 1) && 1) = 1)
+   KAC4_X_We2 = (((KAC4_1 - 1) && 2) = 2)
+   KAC4_X_We3 = (((KAC4_1 - 1) && 4) = 4)
+   KAC4_X_We4 = (((KAC4_1 - 1) && 8) = 8)
+End If
