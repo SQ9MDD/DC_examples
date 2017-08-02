@@ -1,0 +1,67 @@
+//Algorytm sterowania zaworem dwustanowym z resetem pozycji
+//Sinux Ryszard Labus 2014 r.labus@sinux.pl
+//
+//0% - zamkniety
+//100% - otwarty
+//
+Variable direction As Integer //kierunek 1-otwieranie, 2-zamykanie
+Variable run As Integer //flaga pracy
+Variable przelicznik As Real //pomocnicza przelicznik
+//
+//jeli zmieni sis wartosc wejsciowa odpalamy kecenie zaworem i wysterowania
+If AV_ZD_sterowanie_wejscie Changed Then
+  If AV_ZD_sterowanie_wejscie > AV_ZD_sterowanie_stan Then
+     direction = 1 //uruchamiasz otwieranie
+     BV_ZD_wyjscie_otworz = On
+     BV_ZD_wyjscie_zamknij = Off
+  Else
+     direction = 2 //zamykanie
+     BV_ZD_wyjscie_otworz = Off
+     BV_ZD_wyjscie_zamknij = On
+  End If
+  run = 1
+End If
+
+//przeliczanie czasu przejscia zaworu
+przelicznik = 1 / AV_ZD_czas_przejscia * 100
+
+//zliczanie czasu wysterowania i realizacja stop 
+If run = 1 And direction = 1 Then
+  DoEvery 1:S
+    AV_ZD_sterowanie_stan = AV_ZD_sterowanie_stan + przelicznik
+    If (AV_ZD_sterowanie_stan >= AV_ZD_sterowanie_wejscie) Then
+      run = 0
+      BV_ZD_wyjscie_otworz = Off
+    End If
+  End Do
+End If
+
+//zliczanie czasu wysterowania i realizacja stop
+If run = 1 And direction = 2 Then
+  DoEvery 1:S
+    AV_ZD_sterowanie_stan = AV_ZD_sterowanie_stan - przelicznik
+    If (AV_ZD_sterowanie_stan <= AV_ZD_sterowanie_wejscie) Then
+      run = 0
+      BV_ZD_wyjscie_zamknij = Off
+    End If
+  End Do
+End If
+
+//reakcja na flage kalibracji
+If BV_ZD_Kalibracja = On Then
+   AV_ZD_sterowanie_wejscie.OutOfService = TRUE
+   AV_ZD_sterowanie_wejscie = (AV_ZD_czas_przejscia * 2)
+End If
+
+//koniec kalibracji
+If BV_ZD_Kalibracja OnFor (AV_ZD_czas_przejscia * 2):S Then
+   BV_ZD_Kalibracja.OutOfService = FALSE
+   BV_ZD_Kalibracja = Off
+   AV_ZD_sterowanie_wejscie.OutOfService = FALSE
+   AV_ZD_sterowanie_wejscie = 100
+   AV_ZD_sterowanie_stan = 100
+End If
+
+DoEvery 72:H
+   BV_ZD_Kalibracja = On
+End Do
