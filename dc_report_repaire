@@ -1,0 +1,101 @@
+USE [HistorianDB]
+GO
+
+
+/****** Object:  Trigger [DR_trg_newCUseek]    Script Date: 12/20/2012 20:08:28 ******/
+IF  EXISTS (SELECT * FROM dbo.sysobjects WHERE id = OBJECT_ID(N'[dbo].[DR_trg_newCUseek]') AND OBJECTPROPERTY(id, N'IsTrigger') = 1)
+DROP TRIGGER [dbo].[DR_trg_newCUseek]
+GO
+/****** Object:  View [dbo].[DR_view_CUlist]    Script Date: 12/20/2012 20:05:42 ******/
+IF  EXISTS (SELECT * FROM dbo.sysobjects WHERE id = OBJECT_ID(N'[dbo].[DR_view_CUlist]') AND OBJECTPROPERTY(id, N'IsView') = 1)
+DROP VIEW [dbo].[DR_view_CUlist]
+GO
+/****** Object:  Table [dbo].[DR_CUlist]    Script Date: 01/07/2013 09:48:21 ******/
+IF  EXISTS (SELECT * FROM dbo.sysobjects WHERE id = OBJECT_ID(N'[dbo].[DR_CUlist]') AND OBJECTPROPERTY(id, N'IsUserTable') = 1)
+DROP TABLE [dbo].[DR_CUlist]
+GO
+
+/****** Create and fill Table [CUlist] ( Distinct CU with CardNumber and SiteCode   ******/
+SELECT IDENTITY(int, 1, 1) AS CUidx, CardUserInstance, CardUserName, CardUserNumber, SiteCode, CUreference
+INTO DR_CUlist
+FROM
+(Select DISTINCT CardUserInstance, CardUserName, CardUserNumber, SiteCode, (CAST (CardUserInstance AS varchar(5)) + '.' + CardUserName + '.' + CAST(CardUserNumber AS varchar(10)) + '.' + CAST(SiteCode AS varchar(10))) AS CUreference 
+FROM ACEvent
+WHERE (CardUserInstance > 0) AND (SiteCode <> 0) ) AS d
+GO
+
+/****** Object:  Index [PK_DR_CUlist]    Script Date: 12/07/2009 16:43:42 ******/
+ALTER TABLE [dbo].[DR_CUlist] ADD  CONSTRAINT [PK_DR_CUlist] PRIMARY KEY CLUSTERED 
+(
+	[CUidx] ASC
+) ON [PRIMARY]
+GO
+
+/***** Dodanie kolumny LastCardScan, opisującej datę ostatniego skanu karty, do tabeli DR_CUlist *****/ 
+if not exists (select column_name from INFORMATION_SCHEMA.columns where table_name = 'DR_CUlist' and column_name = 'LastCardScan')
+	ALTER TABLE DR_CUlist ADD LastCardScan datetime NULL
+GO
+
+/***** Wypełnienie kolumny LastCardScan w tabeli DR_CUlist, gdy jest wartość null  *****/ 
+UPDATE [DR_CUlist] 
+   SET [LastCardScan] = (Select MAX(ace.EventTime) FROM ACEvent as ace WHERE ace.CardUserInstance = DR_CUlist.CardUserInstance AND ace.CardUserName=DR_CUlist.CardUserName AND ace.CardUserNumber=DR_CUlist.CardUserNumber AND ace.SiteCode=DR_CUlist.SiteCode)
+WHERE [LastCardScan] IS NULL   
+ 
+/***** Dodanie kolumny Active, opisującej czy użytkownik jest aktywny, do tabeli DR_CUlist *****/
+if not exists (select column_name from INFORMATION_SCHEMA.columns where table_name = 'DR_CUlist' and column_name = 'CUActive')
+	ALTER TABLE DR_CUlist ADD [CUActive] bit NULL default(1)	
+GO
+
+/***** Ustawienie w tabeli DR_CUlist wartości true dla kolumny Active, gdy jest wartość null  *****/ 
+UPDATE DR_CUlist SET [CUActive]=1 WHERE [CUActive] IS NULL
+GO
+
+/****** Object:  View [dbo].[DR_view_CUlist]    Script Date: 12/20/2012 20:05:42 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+IF NOT EXISTS (SELECT * FROM dbo.sysobjects WHERE id = OBJECT_ID(N'[dbo].[DR_view_CUlist]') AND OBJECTPROPERTY(id, N'IsView') = 1)
+EXEC dbo.sp_executesql @statement = N'CREATE VIEW [dbo].[DR_view_CUlist]
+AS
+SELECT     CardUserInstance, CardUserName, CardUserNumber, SiteCode
+FROM         dbo.DR_CUlist
+'
+GO
+
+/****** Object:  Trigger [DR_trg_newCUseek]    Script Date: 12/20/2012 20:05:42 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+IF NOT EXISTS (SELECT * FROM dbo.sysobjects WHERE id = OBJECT_ID(N'[dbo].[DR_trg_newCUseek]') AND OBJECTPROPERTY(id, N'IsTrigger') = 1)
+EXEC dbo.sp_executesql @statement = N'
+-- =============================================
+-- Author:		Ness
+-- Create date: 2009-12-07
+-- Description:	Seeking new CU with card numbers and site codes
+-- =============================================
+CREATE TRIGGER [dbo].[DR_trg_newCUseek] 
+   ON  [dbo].[ACEvent] 
+   AFTER INSERT
+AS
+BEGIN
+	-- SET NOCOUNT ON added to prevent extra result sets from
+	-- interfering with SELECT statements.
+	SET NOCOUNT ON;
+
+    -- Insert statements for trigger here
+	if((SELECT COUNT(i.CardUserInstance) 	  
+		  FROM Inserted As i
+		   WHERE  ((i.CardUserInstance > 0) AND (i.SiteCode <> 0) AND (CAST (i.CardUserInstance AS varchar(5)) + ''.'' + i.CardUserName + ''.'' + CAST(i.CardUserNumber AS varchar(10)) + ''.'' + CAST(i.SiteCode AS varchar(10)))  NOT IN (SELECT CUreference 
+			FROM [HistorianDB].[dbo].[DR_CUlist])))>0)
+      BEGIN
+			INSERT INTO DR_CUlist (CardUserInstance, CardUserName, CardUserNumber, SiteCode, CUreference, LastCardScan) SELECT i.CardUserInstance, i.CardUserName, i.CardUserNumber, i.SiteCode, (CAST (i.CardUserInstance AS varchar(5)) + ''.'' + i.CardUserName + ''.'' + CAST(i.CardUserNumber AS varchar(10)) + ''.'' + CAST(i.SiteCode AS varchar(10))), i.EventTime FROM Inserted as i
+	  END
+	else
+	  BEGIN
+		UPDATE DR_CUlist SET LastCardScan=Inserted.EventTime FROM Inserted WHERE CUreference=(CAST (Inserted.CardUserInstance AS varchar(5)) + ''.'' + Inserted.CardUserName + ''.'' + CAST(Inserted.CardUserNumber AS varchar(10)) + ''.'' + CAST(Inserted.SiteCode AS varchar(10))) 
+	  END
+END
+'
+GO
